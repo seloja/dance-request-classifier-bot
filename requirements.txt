@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+aiogram
+python-dotenv
+pydantic
+httpx
+pandas
+pytest
+scikit-learn
+torch
+transformers
+datasets
+accelerate
