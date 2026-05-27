@@ -27,7 +27,7 @@ def load_schedule(path: Path = SCHEDULE_PATH) -> list[dict[str, Any]]:
 
 
 def extract_age(text: str) -> int | None:
-    match = re.search(r"\b([4-9]|1[0-8])\b\s*(?:лет|года|год)?", text.lower())
+    match = re.search(r"\b([3-9]|1[0-8])\b\s*(?:лет|года|год)?", text.lower())
     return int(match.group(1)) if match else None
 
 
@@ -121,7 +121,7 @@ def enrollment_start_text() -> str:
     return (
         "Отлично, помогу оформить заявку на пробное занятие по брейк-дансу.\n\n"
         "Напишите, пожалуйста, одним сообщением:\n"
-        "— имя ребёнка;\n"
+        "— имя ребёнка(обязательно с большой буквы);\n"
         "— возраст;\n"
         "— был ли опыт занятий танцами или брейк-дансом.\n\n"
         "Например:\n"

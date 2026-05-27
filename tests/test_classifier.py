@@ -7,6 +7,9 @@ from app.classifier import KeywordClassifier
     ("text", "expected_label"),
     [
         ("Хочу записать ребёнка", "enrollment"),
+        ("Запись", "enrollment"),
+        ("Запишите ребёнка", "enrollment"),
+        ("Хочу записаться", "enrollment"),
         ("Можно прийти на пробное занятие", "enrollment"),
         ("Во сколько сегодня тренировка", "schedule"),
         ("Когда занятия у младшей группы", "schedule"),
