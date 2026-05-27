@@ -15,6 +15,10 @@ class Settings:
     confidence_threshold: float = float(os.getenv("CONFIDENCE_THRESHOLD", "0.5"))
     model_name: str = os.getenv("MODEL_NAME", "cointegrated/rubert-tiny2")
     model_dir: str = os.getenv("MODEL_DIR", "models/rubert_tiny2_dance_classifier")
+    admin_username: str = os.getenv("ADMIN_USERNAME", "@dance_studio")
+    staff_chat_id: str = os.getenv("STAFF_CHAT_ID", "")
+    enrollment_chat_id: str = os.getenv("ENROLLMENT_CHAT_ID", "")
+    absence_chat_id: str = os.getenv("ABSENCE_CHAT_ID", "")
 
 
 settings = Settings()

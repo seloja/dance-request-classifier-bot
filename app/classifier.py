@@ -52,6 +52,10 @@ KEYWORDS = {
         "сто",
         "цена",
         "оплат",
+        "оплач",
+        "платить",
+        "заплат",
+        "внести оплат",
         "абонемент",
         "перевод",
         "налич",
@@ -164,7 +168,7 @@ class TransformerClassifier(BaseClassifier):
         self.model.eval()
 
     def predict(self, text: str) -> dict:
-        normalized_text = KeywordClassifier.normalize(text)
+        normalized_text = re.sub(r"\s+", " ", text).strip()
         if not normalized_text:
             return {"label": "admin_other", "confidence": 0.0}
 
@@ -185,14 +189,18 @@ class TransformerClassifier(BaseClassifier):
         return {"label": label, "confidence": float(confidence)}
 
 
+def create_classifier(classifier_type: str | None = None) -> BaseClassifier:
+    selected_type = (classifier_type or settings.classifier_type).lower()
+    if selected_type == "baseline":
+        return KeywordClassifier()
+    if selected_type == "transformer":
+        return TransformerClassifier()
+
+    raise ValueError(
+        f"Unknown CLASSIFIER_TYPE={selected_type!r}. Use 'baseline' or 'transformer'."
+    )
+
+
 @lru_cache
 def get_classifier() -> BaseClassifier:
-    if settings.classifier_type == "transformer":
-        try:
-            return TransformerClassifier()
-        except FileNotFoundError as exc:
-            print(exc)
-            print("Fallback to KeywordClassifier.")
-            return KeywordClassifier()
-
-    return KeywordClassifier()
+    return create_classifier()

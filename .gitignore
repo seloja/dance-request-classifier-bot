@@ -3,5 +3,8 @@ __pycache__/
 .env
 *.pyc
 data/evaluation_results.csv
+data/transformer_evaluation_results.csv
+data/transformer_metrics.json
+data/transformer_predictions.csv
 models/rubert_tiny2_dance_classifier/
 .pytest_cache/

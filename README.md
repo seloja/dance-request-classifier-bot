@@ -5,10 +5,10 @@
 Система построена по схеме:
 
 ```text
-Telegram-бот -> FastAPI -> модуль классификации -> шаблонный ответ пользователю
+Telegram-бот -> FastAPI -> модуль классификации -> сценарий обработки -> ответ пользователю
 ```
 
-На первом этапе работает baseline-классификатор по ключевым словам. Архитектура уже подготовлена для переключения на Transformer-модель `cointegrated/rubert-tiny2`.
+В проекте есть baseline-классификатор по ключевым словам и Transformer-классификатор на основе `cointegrated/rubert-tiny2`. Классификатор определяет тему первого сообщения, после чего Telegram-бот запускает сценарий обработки.
 
 ## Классы запросов
 
@@ -59,6 +59,13 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+Если PowerShell запрещает активацию окружения, выполните:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+```
+
 Создайте `.env` на основе `.env.example`:
 
 ```powershell
@@ -74,12 +81,30 @@ CLASSIFIER_TYPE=baseline
 CONFIDENCE_THRESHOLD=0.5
 MODEL_NAME=cointegrated/rubert-tiny2
 MODEL_DIR=models/rubert_tiny2_dance_classifier
+ADMIN_USERNAME=@dance_studio
+STAFF_CHAT_ID=
+ENROLLMENT_CHAT_ID=
+ABSENCE_CHAT_ID=
 ```
+
+`ADMIN_USERNAME` используется для ссылки на администратора. `STAFF_CHAT_ID` — общий служебный чат администратора или тренера. Если `ENROLLMENT_CHAT_ID` или `ABSENCE_CHAT_ID` не заданы, бот использует `STAFF_CHAT_ID`.
 
 ## Запуск FastAPI
 
 ```powershell
 uvicorn app.api:app --reload
+```
+
+Если порт `8000` занят или Windows выдаёт ошибку доступа к сокету, используйте порт `8001`:
+
+```powershell
+python -m uvicorn app.api:app --reload --port 8001
+```
+
+В этом случае в `.env` нужно указать:
+
+```env
+API_URL=http://127.0.0.1:8001/classify
 ```
 
 Проверка API:
@@ -100,6 +125,152 @@ python bot.py
 
 Бот не классифицирует текст сам: он отправляет сообщение в FastAPI по адресу из `API_URL`.
 
+## Полный запуск с нуля
+
+Откройте PowerShell и перейдите в папку проекта:
+
+```powershell
+cd "C:\Users\seloj\Desktop\диплом\dance_bot"
+```
+
+Создайте и активируйте виртуальное окружение:
+
+```powershell
+python -m venv .venv
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+```
+
+Установите зависимости:
+
+```powershell
+pip install -r requirements.txt
+```
+
+Создайте `.env`, если его ещё нет:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Откройте `.env` и заполните настройки:
+
+```env
+BOT_TOKEN=your_telegram_bot_token_here
+API_URL=http://127.0.0.1:8001/classify
+CLASSIFIER_TYPE=baseline
+CONFIDENCE_THRESHOLD=0.5
+MODEL_NAME=cointegrated/rubert-tiny2
+MODEL_DIR=models/rubert_tiny2_dance_classifier
+ADMIN_USERNAME=@dance_studio
+STAFF_CHAT_ID=
+ENROLLMENT_CHAT_ID=
+ABSENCE_CHAT_ID=
+```
+
+Для запуска нужны два окна PowerShell.
+
+Окно 1 — FastAPI:
+
+```powershell
+cd "C:\Users\seloj\Desktop\диплом\dance_bot"
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+python -m uvicorn app.api:app --reload --port 8001
+```
+
+Проверка API в браузере:
+
+```text
+http://127.0.0.1:8001/docs
+```
+
+Окно 2 — Telegram-бот:
+
+```powershell
+cd "C:\Users\seloj\Desktop\диплом\dance_bot"
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+python bot.py
+```
+
+После этого откройте Telegram-бота и отправьте:
+
+```text
+/start
+```
+
+Затем можно проверить сценарии:
+
+```text
+Хочу записать ребёнка
+```
+
+```text
+Мы сегодня не придём
+```
+
+```text
+Когда тренировка у младшей группы?
+```
+
+```text
+Сколько стоит абонемент?
+```
+
+Чтобы остановить API или бота в терминале, нажмите:
+
+```text
+Ctrl + C
+```
+
+## Сценарии бота
+
+После классификации первого сообщения бот запускает один из сценариев:
+
+- `enrollment` — собирает имя ребёнка, возраст и опыт занятий, подбирает группу по `data/schedule.json` и предлагает отправить заявку администратору.
+- `absence` — просит данные о пропуске и отправляет уведомление тренеру или администратору.
+- `schedule` — уточняет возраст или название группы и показывает расписание.
+- `payment` — даёт справочную информацию по оплате и кнопку связи с администратором.
+- `admin_other` — предлагает описать вопрос администратору.
+
+Если пользователь находится внутри сценария, следующее сообщение не отправляется в классификатор, а обрабатывается как ответ на текущий шаг. Для отмены сценария:
+
+```powershell
+/cancel
+```
+
+Расписание групп хранится в `data/schedule.json`. В первой версии направление одно — брейк-данс, поэтому бот не спрашивает направление.
+
+## Служебный чат
+
+Для отправки заявок и пропусков добавьте бота в служебный чат администратора или тренера. Затем получите `chat_id` и укажите его в `.env`:
+
+```env
+STAFF_CHAT_ID=-1001234567890
+```
+
+Простой способ узнать `chat_id`:
+
+1. Добавьте бота в нужный чат.
+2. Напишите любое сообщение в чат.
+3. Откройте в браузере:
+
+```text
+https://api.telegram.org/bot<ВАШ_BOT_TOKEN>/getUpdates
+```
+
+4. Найдите поле `chat.id`.
+
+Для раздельных чатов можно указать:
+
+```env
+ENROLLMENT_CHAT_ID=-1001111111111
+ABSENCE_CHAT_ID=-1002222222222
+```
+
+Если служебный чат не настроен, бот не падает, а предлагает пользователю связаться с администратором.
+
 ## Оценка качества
 
 ```powershell
@@ -107,6 +278,15 @@ python evaluate.py
 ```
 
 Скрипт читает `data/test.csv`, считает accuracy и сохраняет подробный результат в `data/evaluation_results.csv`.
+
+Можно явно выбрать классификатор:
+
+```powershell
+python evaluate.py --classifier baseline
+python evaluate.py --classifier transformer
+```
+
+Transformer-режим считается готовым для демонстрации, если accuracy на `data/test.csv` не ниже baseline-ориентира `0.85`.
 
 ## Тесты
 
@@ -128,7 +308,10 @@ python train_transformer.py
 - файлы `data/train.csv` и `data/test.csv`;
 - 5 классов классификации;
 - `max_length=128`;
-- сохранение модели в `models/rubert_tiny2_dance_classifier/`.
+- фиксированный `seed=42`;
+- сохранение модели в `models/rubert_tiny2_dance_classifier/`;
+- сохранение метрик в `data/transformer_metrics.json`;
+- сохранение предсказаний в `data/transformer_predictions.csv`.
 
 После обучения можно переключить классификатор в `.env`:
 
@@ -136,7 +319,20 @@ python train_transformer.py
 CLASSIFIER_TYPE=transformer
 ```
 
-Если `CLASSIFIER_TYPE=transformer`, но обученной модели нет, приложение выведет понятное предупреждение и автоматически использует baseline-классификатор, чтобы демонстрация проекта не ломалась.
+Текущий локальный результат после обучения `cointegrated/rubert-tiny2`:
+
+```text
+baseline accuracy: 0.8500
+transformer accuracy: 0.9200
+```
+
+Если `CLASSIFIER_TYPE=transformer`, но обученной модели нет, приложение выдаст понятную ошибку. Для стабильной демонстрации верните режим:
+
+```env
+CLASSIFIER_TYPE=baseline
+```
+
+Так переключение между baseline и Transformer остаётся явным и контролируемым.
 
 ## Режим baseline
 

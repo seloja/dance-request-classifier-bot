@@ -1,12 +1,14 @@
+import argparse
 from pathlib import Path
 
 import pandas as pd
 
-from app.classifier import get_classifier
+from app.classifier import create_classifier
 
 
 DATA_DIR = Path("data")
 RESULT_PATH = DATA_DIR / "evaluation_results.csv"
+BASELINE_ACCURACY_TARGET = 0.85
 
 
 def load_dataset() -> pd.DataFrame:
@@ -23,9 +25,26 @@ def load_dataset() -> pd.DataFrame:
     return data
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Evaluate dance request classifier.")
+    parser.add_argument(
+        "--classifier",
+        choices=["baseline", "transformer"],
+        default=None,
+        help="Classifier type to evaluate. By default uses CLASSIFIER_TYPE from .env.",
+    )
+    parser.add_argument(
+        "--output",
+        default=str(RESULT_PATH),
+        help="Path to CSV file with evaluation predictions.",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
     data = load_dataset()
-    classifier = get_classifier()
+    classifier = create_classifier(args.classifier)
     rows = []
 
     for _, row in data.iterrows():
@@ -43,7 +62,9 @@ def main() -> None:
         )
 
     results = pd.DataFrame(rows)
-    results.to_csv(RESULT_PATH, index=False)
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    results.to_csv(output_path, index=False)
 
     total = len(results)
     correct = int(results["is_correct"].sum())
@@ -54,7 +75,12 @@ def main() -> None:
     print(f"Correct: {correct}")
     print(f"Incorrect: {incorrect}")
     print(f"Accuracy: {accuracy:.4f}")
-    print(f"Saved results to {RESULT_PATH}")
+    print(f"Baseline target: {BASELINE_ACCURACY_TARGET:.4f}")
+    print(
+        "Transformer is acceptable for demo: "
+        f"{accuracy >= BASELINE_ACCURACY_TARGET}"
+    )
+    print(f"Saved results to {output_path}")
 
 
 if __name__ == "__main__":
