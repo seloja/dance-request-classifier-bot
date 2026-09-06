@@ -1,9 +1,16 @@
 from fastapi.testclient import TestClient
 
+from app.classifier import get_classifier
+from app.config import settings
 from app.api import app
 
 
 client = TestClient(app)
+
+
+def setup_function():
+    object.__setattr__(settings, "classifier_type", "baseline")
+    get_classifier.cache_clear()
 
 
 def test_health():

@@ -12,6 +12,15 @@ from aiogram.types import (
 )
 
 from app.config import settings
+from app.database import (
+    has_user_consent,
+    init_database,
+    save_absence_report,
+    save_classification,
+    save_enrollment_request,
+    save_message,
+    save_user_consent,
+)
 from app.dialog_state import clear_state, get_state, set_state
 from app.scenarios import (
     absence_notification_text,
@@ -21,13 +30,11 @@ from app.scenarios import (
     admin_url,
     create_absence_state,
     create_enrollment_state,
-    create_schedule_state,
     enrollment_next_message,
     enrollment_notification_text,
     enrollment_start_text,
     payment_text,
-    schedule_response_text,
-    schedule_start_text,
+    schedule_all_text,
     service_chat_not_configured_text,
     update_enrollment_data,
 )
@@ -50,6 +57,28 @@ API_UNAVAILABLE_TEXT = (
 
 
 dp = Dispatcher()
+
+
+CONSENT_TEXT = (
+    "Перед использованием бота подтвердите согласие на обработку минимальных данных.\n\n"
+    "Бот может сохранять Telegram ID, имя пользователя, текст сообщений, результаты классификации, "
+    "а также сведения, которые вы сами укажете при записи или сообщении о пропуске занятия.\n\n"
+    "Данные используются только для обработки обращений студии: записи на занятие, передачи информации "
+    "о пропуске, ответа на вопросы и связи с администратором.\n\n"
+    "Нажимая кнопку «Согласен», вы подтверждаете согласие на обработку этих данных."
+)
+
+CONSENT_REQUIRED_TEXT = (
+    "Чтобы пользоваться ботом, сначала подтвердите согласие на обработку минимальных данных."
+)
+
+
+def consent_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Согласен", callback_data="consent_accept")]
+        ]
+    )
 
 
 def admin_keyboard() -> InlineKeyboardMarkup:
@@ -113,8 +142,8 @@ async def start_absence(message: Message) -> None:
 
 
 async def start_schedule(message: Message) -> None:
-    set_state(message.from_user.id, create_schedule_state())
-    await message.answer(schedule_start_text())
+    clear_state(message.from_user.id)
+    await message.answer(schedule_all_text(), reply_markup=admin_keyboard())
 
 
 async def handle_enrollment_message(message: Message, state: dict) -> None:
@@ -129,6 +158,7 @@ async def handle_enrollment_message(message: Message, state: dict) -> None:
 
 async def handle_absence_message(message: Message, state: dict) -> None:
     text = (message.text or "").strip()
+    save_absence_report(text, message.from_user)
     sent = await send_to_service_chat(
         message.bot,
         absence_chat_id(),
@@ -146,20 +176,22 @@ async def handle_absence_message(message: Message, state: dict) -> None:
     )
 
 
-async def handle_schedule_message(message: Message, state: dict) -> None:
-    answer, _ = schedule_response_text(message.text or "")
-    clear_state(message.from_user.id)
-    await message.answer(answer, reply_markup=admin_keyboard())
-
-
 async def handle_state_message(message: Message, state: dict) -> None:
     scenario = state.get("scenario")
     if scenario == "enrollment":
+        if state.get("step") == "waiting_enrollment_confirmation":
+            clear_state(message.from_user.id)
+            try:
+                result = await classify_text(message.text or "")
+            except httpx.HTTPError:
+                logging.exception("Classification API is unavailable")
+                await message.answer(API_UNAVAILABLE_TEXT)
+                return
+            await route_classified_message(message, result)
+            return
         await handle_enrollment_message(message, state)
     elif scenario == "absence":
         await handle_absence_message(message, state)
-    elif scenario == "schedule":
-        await handle_schedule_message(message, state)
     else:
         clear_state(message.from_user.id)
         await message.answer("Текущий сценарий сброшен. Можете написать новый вопрос.")
@@ -186,7 +218,17 @@ async def route_classified_message(message: Message, result: dict) -> None:
 @dp.message(Command("start"))
 async def start_handler(message: Message) -> None:
     clear_state(message.from_user.id)
-    await message.answer(START_TEXT)
+    if has_user_consent(message.from_user):
+        await message.answer(START_TEXT)
+        return
+    await message.answer(CONSENT_TEXT, reply_markup=consent_keyboard())
+
+
+@dp.callback_query(F.data == "consent_accept")
+async def consent_accept_handler(callback: CallbackQuery) -> None:
+    save_user_consent(callback.from_user)
+    await callback.answer("Согласие сохранено")
+    await callback.message.answer(START_TEXT)
 
 
 @dp.message(Command("help"))
@@ -198,6 +240,11 @@ async def help_handler(message: Message) -> None:
 async def cancel_handler(message: Message) -> None:
     clear_state(message.from_user.id)
     await message.answer("Текущий сценарий отменён. Можете написать новый вопрос.")
+
+
+@dp.message(Command("chatid"))
+async def chat_id_handler(message: Message) -> None:
+    await message.answer(f"ID этого чата: {message.chat.id}")
 
 
 @dp.callback_query(F.data == "enrollment_submit")
@@ -212,6 +259,7 @@ async def enrollment_submit_handler(callback: CallbackQuery) -> None:
         enrollment_chat_id(),
         enrollment_notification_text(state["data"], callback.from_user),
     )
+    save_enrollment_request(state["data"], callback.from_user)
     clear_state(callback.from_user.id)
     await callback.answer()
 
@@ -247,6 +295,11 @@ async def text_handler(message: Message) -> None:
         await message.answer("Пожалуйста, напишите вопрос текстом.")
         return
 
+    if not has_user_consent(message.from_user):
+        await message.answer(CONSENT_REQUIRED_TEXT, reply_markup=consent_keyboard())
+        return
+
+    message_db_id = save_message(message.from_user, text)
     state = get_state(message.from_user.id)
     if state:
         await handle_state_message(message, state)
@@ -259,6 +312,11 @@ async def text_handler(message: Message) -> None:
         await message.answer(API_UNAVAILABLE_TEXT)
         return
 
+    save_classification(
+        message_db_id,
+        result.get("label", "admin_other"),
+        float(result.get("confidence", 0.0)),
+    )
     await route_classified_message(message, result)
 
 
@@ -272,6 +330,7 @@ async def main() -> None:
         raise RuntimeError("BOT_TOKEN is empty. Add it to .env before starting the bot.")
 
     logging.basicConfig(level=logging.INFO)
+    init_database()
     bot = Bot(token=settings.bot_token)
     await dp.start_polling(bot)
 

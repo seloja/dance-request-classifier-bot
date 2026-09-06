@@ -4,7 +4,8 @@ __pycache__/
 *.pyc
 data/evaluation_results.csv
 data/transformer_evaluation_results.csv
-data/transformer_metrics.json
 data/transformer_predictions.csv
+data/*.sqlite3
+data/*.db
 models/rubert_tiny2_dance_classifier/
 .pytest_cache/

@@ -19,6 +19,7 @@ class Settings:
     staff_chat_id: str = os.getenv("STAFF_CHAT_ID", "")
     enrollment_chat_id: str = os.getenv("ENROLLMENT_CHAT_ID", "")
     absence_chat_id: str = os.getenv("ABSENCE_CHAT_ID", "")
+    database_path: str = os.getenv("DATABASE_PATH", "data/dance_bot.sqlite3")
 
 
 settings = Settings()

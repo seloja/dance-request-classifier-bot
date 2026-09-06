@@ -8,6 +8,35 @@ from app.config import settings
 
 SCHEDULE_PATH = Path("data/schedule.json")
 BREAKDANCE_DIRECTION = "брейк-данс"
+TRIAL_LESSON_SLOT = {
+    "name": "Пробное занятие для новичков",
+    "days": "",
+    "time": "16:30–17:30",
+    "description": "пробное занятие для новичков; после него тренер подскажет подходящее постоянное время",
+}
+
+AGE_WORDS = {
+    "один": 1,
+    "одна": 1,
+    "два": 2,
+    "две": 2,
+    "три": 3,
+    "четыре": 4,
+    "пять": 5,
+    "шесть": 6,
+    "семь": 7,
+    "восемь": 8,
+    "девять": 9,
+    "десять": 10,
+    "одиннадцать": 11,
+    "двенадцать": 12,
+    "тринадцать": 13,
+    "четырнадцать": 14,
+    "пятнадцать": 15,
+    "шестнадцать": 16,
+    "семнадцать": 17,
+    "восемнадцать": 18,
+}
 
 
 def admin_username() -> str:
@@ -27,41 +56,99 @@ def load_schedule(path: Path = SCHEDULE_PATH) -> list[dict[str, Any]]:
 
 
 def extract_age(text: str) -> int | None:
-    match = re.search(r"\b([3-9]|1[0-8])\b\s*(?:лет|года|год)?", text.lower())
-    return int(match.group(1)) if match else None
-
-
-def find_group_by_age(age: int, groups: list[dict[str, Any]] | None = None) -> dict[str, Any] | None:
-    for group in groups or load_schedule():
-        if int(group["age_min"]) <= age <= int(group["age_max"]):
-            return group
-    return None
-
-
-def find_group_by_name(text: str, groups: list[dict[str, Any]] | None = None) -> dict[str, Any] | None:
     normalized = text.lower().replace("ё", "е")
-    for group in groups or load_schedule():
-        name = group["name"].lower().replace("ё", "е")
-        short_name = name.replace(" группа", "")
-        if name in normalized or short_name in normalized:
-            return group
+    match = re.search(r"(?<!\d)([1-9]\d?)(?!\d)\s*(?:лет|года|год)?", normalized)
+    if match:
+        return int(match.group(1))
+
+    for word, age in AGE_WORDS.items():
+        if re.search(rf"\b{word}\b\s*(?:лет|года|год)?", normalized):
+            return age
     return None
 
 
-def find_group(text: str) -> dict[str, Any] | None:
-    age = extract_age(text)
-    if age is not None:
-        return find_group_by_age(age)
-    return find_group_by_name(text)
+def extract_experience_years(text: str) -> int | None:
+    normalized = text.lower().replace("ё", "е")
+    match = re.search(
+        r"(?:опыт|занимал\w*|ходил\w*|трениров\w*)\D{0,20}"
+        r"(?:больше|более|от|около|примерно)?\s*(\d{1,2})\s*(?:\+)?\s*(?:лет|года|год)",
+        normalized,
+    )
+    if match:
+        return int(match.group(1))
+
+    match = re.search(r"(\d{1,2})\s*\+\s*(?:лет|года|год)?\s*(?:опыт|заним|трениров)?", normalized)
+    if match:
+        return int(match.group(1))
+
+    if re.search(r"(?:больше|более)\s+пяти\s+лет", normalized):
+        return 6
+    return None
+
+
+def trial_lesson_slot() -> dict[str, Any]:
+    return TRIAL_LESSON_SLOT.copy()
+
+
+def format_group_schedule(group: dict[str, Any]) -> str:
+    days = str(group.get("days", "")).strip()
+    time = str(group.get("time", "")).strip()
+    if days and time:
+        return f"{days}, {time}"
+    return time or days
+
+
+def group_public_description(group: dict[str, Any]) -> str:
+    description = str(group.get("description", "")).strip()
+    schedule = format_group_schedule(group)
+    if description:
+        return f"{schedule} — {description}"
+    return schedule
 
 
 def extract_experience(text: str) -> str | None:
     normalized = text.lower().replace("ё", "е")
-    if any(phrase in normalized for phrase in ["опыта нет", "нет опыта", "без опыта", "не заним"]):
+    if any(
+        phrase in normalized
+        for phrase in [
+            "опыта нет",
+            "нет опыта",
+            "без опыта",
+            "опыт отсутствует",
+            "не заним",
+            "не ходил",
+            "не ходила",
+            "первый раз",
+            "с нуля",
+        ]
+    ):
         return "опыта нет"
-    if any(phrase in normalized for phrase in ["немного", "чуть", "пару раз"]):
+    if any(
+        phrase in normalized
+        for phrase in ["немного", "чуть", "пару раз", "мало", "начальный", "начинающий"]
+    ):
         return "немного занимался"
-    if any(phrase in normalized for phrase in ["брейк", "танц", "занимал", "ходил", "ходила"]):
+
+    positive_markers = [
+        "есть опыт",
+        "опыт есть",
+        "с опытом",
+        "имеется опыт",
+        "раньше заним",
+        "ранее заним",
+        "уже заним",
+        "занимал",
+        "ходил",
+        "ходила",
+        "трениров",
+        "брейк",
+        "танц",
+        "хореограф",
+        "гимнаст",
+    ]
+    if any(phrase in normalized for phrase in positive_markers):
+        return text.strip()
+    if extract_experience_years(text) is not None:
         return text.strip()
     return None
 
@@ -71,11 +158,20 @@ def extract_child_name(text: str) -> str | None:
     ignored = ("лет", "год", "опыт", "заним", "брейк", "танц", "нет", "немного")
     for part in parts:
         lower_part = part.lower()
-        if any(marker in lower_part for marker in ignored) or extract_age(part) is not None:
+        if any(marker in lower_part for marker in ignored) and len(parts) > 1:
+            continue
+        if extract_age(part) is not None and len(parts) > 1:
             continue
         match = re.search(r"[А-ЯЁ][а-яё-]{1,30}", part)
         if match:
             return match.group(0)
+
+    cleaned = re.sub(r"(?<!\d)[1-9]\d?(?!\d)\s*(?:лет|года|год)?", " ", text, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\b(?:опыта\s+нет|нет\s+опыта|без\s+опыта|есть\s+опыт|опыт\s+есть)\b", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\b(?:немного|чуть|пару\s+раз|раньше|ранее|уже|занимал\w*|ходил\w*|ходила|танц\w*|брейк\w*)\b", " ", cleaned, flags=re.IGNORECASE)
+    match = re.search(r"[А-ЯЁ][а-яё-]{1,30}", cleaned)
+    if match:
+        return match.group(0)
 
     match = re.fullmatch(r"\s*([А-ЯЁ][а-яё-]{1,30})\s*", text)
     return match.group(1) if match else None
@@ -96,10 +192,6 @@ def create_enrollment_state() -> dict[str, Any]:
 
 def create_absence_state() -> dict[str, Any]:
     return {"scenario": "absence", "step": "waiting_absence_details", "data": {}}
-
-
-def create_schedule_state() -> dict[str, Any]:
-    return {"scenario": "schedule", "step": "waiting_schedule_query", "data": {}}
 
 
 def update_enrollment_data(state: dict[str, Any], text: str) -> dict[str, Any]:
@@ -138,15 +230,8 @@ def enrollment_next_message(state: dict[str, Any]) -> tuple[str, bool]:
     ]
 
     if not missing:
-        group = find_group_by_age(int(data["age"]))
-        data["group"] = group
+        data["group"] = trial_lesson_slot()
         state["step"] = "waiting_enrollment_confirmation"
-        if group is None:
-            return (
-                "Спасибо! Я не смог подобрать группу по указанному возрасту.\n\n"
-                f"Свяжитесь с администратором: {admin_username()}",
-                True,
-            )
         return (enrollment_summary_text(data), True)
 
     if missing == ["experience"]:
@@ -190,44 +275,38 @@ def enrollment_next_message(state: dict[str, Any]) -> tuple[str, bool]:
 def enrollment_summary_text(data: dict[str, Any]) -> str:
     group = data["group"]
     return (
-        f"Спасибо! По возрасту ребёнку подходит группа: {group['name']}.\n\n"
+        "Спасибо! Для первого занятия предлагаю пробную группу для новичков.\n\n"
         f"Направление: {BREAKDANCE_DIRECTION}\n"
-        f"Расписание: {group['days']}, {group['time']}\n\n"
+        f"Время пробного занятия: {format_group_schedule(group)}\n\n"
+        "На первом занятии тренер посмотрит уровень ребёнка и подскажет, "
+        "в какое постоянное время лучше ходить дальше.\n\n"
         "На первое занятие нужно взять:\n"
         "— удобную спортивную одежду;\n"
         "— чистую сменную обувь;\n"
         "— воду;\n"
         "— резинку для волос, если волосы длинные.\n\n"
+        f"Если это время не подходит, можно связаться с администратором: {admin_username()}\n\n"
         "Передать заявку администратору студии?"
     )
 
 
-def schedule_start_text() -> str:
-    return (
-        "Чтобы показать расписание, напишите, пожалуйста, возраст ребёнка или название группы.\n\n"
-        "Например:\n"
-        "«6 лет», «младшая группа», «старшая группа»."
-    )
+def schedule_all_text() -> str:
+    groups = load_schedule()
+    lines = [
+        "Расписание занятий по брейк-дансу:",
+        "",
+    ]
+    for group in groups:
+        lines.append(f"— {group_public_description(group)}")
 
-
-def schedule_response_text(text: str) -> tuple[str, dict[str, Any] | None]:
-    group = find_group(text)
-    if group is None:
-        return (
-            "Я не смог точно определить группу по вашему сообщению.\n\n"
-            "Пожалуйста, напишите возраст ребёнка числом, например «8 лет», "
-            f"или свяжитесь с администратором:\n{admin_username()}",
-            None,
-        )
-    return (
-        "Для указанного возраста/группы подходит:\n\n"
-        f"Группа: {group['name']}\n"
-        f"Направление: {BREAKDANCE_DIRECTION}\n"
-        f"Расписание: {group['days']}, {group['time']}\n\n"
-        "Если нужно уточнить перенос, отмену занятия или наличие мест, "
-        f"напишите администратору:\n{admin_username()}",
-        group,
+    lines.extend(
+        [
+            "",
+            "Если хотите подобрать подходящее время для ребёнка, напишите возраст и опыт занятий.",
+            f"Для уточнения наличия мест можно написать администратору: {admin_username()}",
+        ]
     )
+    return "\n".join(lines)
 
 
 def absence_start_text() -> str:
@@ -235,23 +314,22 @@ def absence_start_text() -> str:
         "Я понял, что речь идёт о пропуске занятия.\n\n"
         "Напишите, пожалуйста, одним сообщением:\n"
         "— имя ребёнка;\n"
-        "— группу или возраст;\n"
+        "— время занятия;\n"
         "— дату пропуска;\n"
         "— причину, если хотите указать.\n\n"
         "Например:\n"
-        "Аня, младшая группа, сегодня, заболела."
+        "Аня, 18:00–18:45, сегодня, заболела."
     )
 
 
 def payment_text() -> str:
     return (
         "Ваш вопрос связан с оплатой занятий.\n\n"
-        "Стоимость зависит от группы, количества занятий в неделю и формата посещения.\n\n"
-        "Обычно администратор уточняет:\n"
-        "— возраст ребёнка или группу;\n"
-        "— интересует пробное занятие, разовое посещение или абонемент;\n"
-        "— удобный способ оплаты.\n\n"
-        "Для точной информации по стоимости и способам оплаты напишите администратору:\n"
+        "Актуальная стоимость:\n"
+        "— абонемент на месяц — 6000 рублей;\n"
+        "— разовое занятие — 500 рублей.\n\n"
+        "Если нужно уточнить способ оплаты, срок действия абонемента или наличие задолженности, "
+        "напишите администратору:\n"
         f"{admin_username()}"
     )
 
@@ -291,8 +369,8 @@ def enrollment_notification_text(data: dict[str, Any], user: Any) -> str:
         f"Имя ребёнка: {data['child_name']}\n"
         f"Возраст: {data['age']}\n"
         f"Опыт: {data['experience']}\n\n"
-        f"Предложенная группа: {group['name']}\n"
-        f"Расписание: {group['days']}, {group['time']}\n\n"
+        f"Предложенное время пробного занятия: {format_group_schedule(group)}\n"
+        "Комментарий: после пробного занятия тренер определит подходящее постоянное время\n\n"
         f"{user_identity(user)}\n\n"
         "Заявка отправлена через чат-бота."
     )
