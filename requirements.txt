@@ -1,3 +1,4 @@
+# Runtime, training, and test dependencies.
 fastapi
 uvicorn
 aiogram
